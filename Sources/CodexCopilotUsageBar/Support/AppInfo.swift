@@ -3,17 +3,18 @@ import Foundation
 enum AppInfo {
   static let name = "TokenBar"
 
-  static var version: String {
-    let shortVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-    let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+  static var shortVersion: String {
+    Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.1"
+  }
 
-    switch (shortVersion, build) {
-    case let (.some(shortVersion), .some(build)):
+  static var build: String? {
+    Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+  }
+
+  static var version: String {
+    if let build, !build.isEmpty {
       return "\(shortVersion) (\(build))"
-    case let (.some(shortVersion), .none):
-      return shortVersion
-    default:
-      return "0.1.0"
     }
+    return shortVersion
   }
 }

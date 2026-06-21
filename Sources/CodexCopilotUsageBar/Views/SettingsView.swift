@@ -9,7 +9,7 @@ struct SettingsView: View {
   @AppStorage("showMenuBarUsageNumber") private var showMenuBarUsageNumber = true
   @State private var launchAtLogin = LaunchAtLoginService.isEnabled
   @State private var launchAtLoginError: String?
-  @State private var isLogFileExpanded = false
+  @State private var isDataSourceExpanded = false
 
   init(store: UsageLogStore, embedded: Bool = false) {
     self.store = store
@@ -19,7 +19,7 @@ struct SettingsView: View {
   var body: some View {
     content
     .padding(embedded ? 0 : 20)
-    .frame(width: embedded ? nil : 440, height: embedded ? nil : 320)
+    .frame(width: embedded ? nil : 440, height: embedded ? nil : 360)
   }
 
   private var content: some View {
@@ -45,8 +45,19 @@ struct SettingsView: View {
 
       Divider()
 
-      SettingsCollapsibleSection("Log file", isExpanded: $isLogFileExpanded) {
+      SettingsCollapsibleSection("Data Source", isExpanded: $isDataSourceExpanded) {
         VStack(alignment: .leading, spacing: 8) {
+          Picker("Mode", selection: dataSourceModeBinding) {
+            ForEach(UsageDataSourceMode.allCases) { mode in
+              Text(mode.title).tag(mode.rawValue)
+            }
+          }
+          .pickerStyle(.segmented)
+
+          Text(store.dataSourceDescription)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+
           Text(store.logPath)
             .font(.caption2)
             .foregroundStyle(.secondary)
@@ -54,13 +65,21 @@ struct SettingsView: View {
             .truncationMode(.middle)
             .textSelection(.enabled)
 
-          Button {
-            store.revealLog()
-          } label: {
-            Label("Reveal Log", systemImage: "folder")
+          HStack(spacing: 8) {
+            Button {
+              chooseDataSourcePath()
+            } label: {
+              Label("Choose Path...", systemImage: "folder.badge.plus")
+            }
+
+            Button {
+              store.revealDataSource()
+            } label: {
+              Label("Reveal Source", systemImage: "folder")
+            }
+            .disabled(!store.fileExists)
           }
           .buttonStyle(.bordered)
-          .disabled(!store.fileExists)
         }
         .padding(.top, 4)
       }
@@ -92,6 +111,29 @@ struct SettingsView: View {
         launchAtLogin = LaunchAtLoginService.isEnabled
         launchAtLoginError = error.localizedDescription
       }
+    }
+  }
+
+  private var dataSourceModeBinding: Binding<String> {
+    Binding {
+      store.dataSourceMode.rawValue
+    } set: { rawValue in
+      guard let mode = UsageDataSourceMode(rawValue: rawValue) else { return }
+      store.setDataSourceMode(mode)
+    }
+  }
+
+  private func chooseDataSourcePath() {
+    let panel = NSOpenPanel()
+    panel.title = "Choose Data Source"
+    panel.prompt = "Choose"
+    panel.canChooseFiles = true
+    panel.canChooseDirectories = true
+    panel.allowsMultipleSelection = false
+    panel.directoryURL = store.logFileURL.deletingLastPathComponent()
+
+    if panel.runModal() == .OK, let url = panel.url {
+      store.setLogFileURL(url)
     }
   }
 }

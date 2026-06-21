@@ -147,7 +147,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       NSApp.activate(ignoringOtherApps: true)
       var options: [NSApplication.AboutPanelOptionKey: Any] = [
         .applicationName: AppInfo.name,
-        .applicationVersion: AppInfo.version
+        .applicationVersion: AppInfo.shortVersion
       ]
       options[.applicationIcon] = NSApplication.shared.applicationIconImage
       NSApp.orderFrontStandardAboutPanel(options: options)

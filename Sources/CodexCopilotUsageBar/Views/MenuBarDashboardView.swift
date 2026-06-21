@@ -10,7 +10,7 @@ struct MenuBarDashboardView: View {
   @State private var isSettingsPresented = false
   @State private var isQuitConfirmationPresented = false
   @State private var skipQuitConfirmationDraft = false
-  @State private var isLatestExpanded = false
+  @State private var isAgentsExpanded = false
   @State private var isModelsExpanded = false
   @State private var statIconAnimationCycle = 0
   @State private var refreshIconRotation = 0.0
@@ -66,7 +66,7 @@ struct MenuBarDashboardView: View {
         EmptyStateView(fileExists: store.fileExists)
       } else {
         modelSection
-        detailsSection
+        agentSection
       }
 
       footer
@@ -114,11 +114,15 @@ struct MenuBarDashboardView: View {
     }
   }
 
-  private var detailsSection: some View {
-    CollapsibleSection("Details", isExpanded: $isLatestExpanded) {
+  private var agentSection: some View {
+    CollapsibleSection("Agents", isExpanded: $isAgentsExpanded) {
       VStack(alignment: .leading, spacing: 7) {
-        ForEach(Array(store.summary.recent.enumerated()), id: \.offset) { _, record in
-          LatestRecordRow(record: record)
+        if store.summary.byAgent.isEmpty {
+          EmptyUsageRow(title: "No agent data")
+        } else {
+          ForEach(store.summary.byAgent.prefix(5)) { row in
+            AgentUsageRow(row: row)
+          }
         }
       }
       .padding(.top, 4)
@@ -128,8 +132,12 @@ struct MenuBarDashboardView: View {
   private var modelSection: some View {
     CollapsibleSection("Models", isExpanded: $isModelsExpanded) {
       VStack(alignment: .leading, spacing: 7) {
-        ForEach(store.summary.byModel.prefix(4)) { row in
-          ModelUsageRow(row: row, iconColor: glassStyle.modelIconColor)
+        if store.summary.byModel.isEmpty {
+          EmptyUsageRow(title: "No model data")
+        } else {
+          ForEach(store.summary.byModel.prefix(4)) { row in
+            ModelUsageRow(row: row, iconColor: glassStyle.modelIconColor)
+          }
         }
       }
       .padding(.top, 4)
@@ -142,8 +150,8 @@ struct MenuBarDashboardView: View {
 
       Button {
         spinRefreshIcon()
-        store.refreshNow()
         statIconAnimationCycle += 1
+        store.refreshNow()
       } label: {
         Image(systemName: "arrow.triangle.2.circlepath")
           .rotationEffect(.degrees(refreshIconRotation))
@@ -196,8 +204,8 @@ struct MenuBarDashboardView: View {
 
   private func spinRefreshIcon() {
     guard !reduceMotion else { return }
-    withAnimation(.easeInOut(duration: 0.34)) {
-      refreshIconRotation += 180
+    withAnimation(.linear(duration: 0.62)) {
+      refreshIconRotation += 360
     }
   }
 
@@ -399,24 +407,38 @@ private struct SettingsMenuPresenter: NSViewRepresentable {
       launchItem.state = LaunchAtLoginService.isEnabled ? .on : .off
       menu.addItem(launchItem)
 
-      let logItem = NSMenuItem(title: "Log", action: nil, keyEquivalent: "")
-      let logMenu = NSMenu(title: "Log")
-      let pathItem = NSMenuItem(title: store.logPath, action: nil, keyEquivalent: "")
-      pathItem.isEnabled = false
-      pathItem.toolTip = store.logPath
-      logMenu.addItem(pathItem)
-      let choosePathItem = NSMenuItem(title: "Choose Log File...", action: #selector(chooseLogFile(_:)), keyEquivalent: "")
+      let dataSourceItem = NSMenuItem(title: "Data Source", action: nil, keyEquivalent: "")
+      let dataSourceMenu = NSMenu(title: "Data Source")
+      let autoDetectItem = NSMenuItem(title: UsageDataSourceMode.automatic.title, action: #selector(setDataSourceMode(_:)), keyEquivalent: "")
+      autoDetectItem.target = self
+      autoDetectItem.representedObject = UsageDataSourceMode.automatic.rawValue
+      autoDetectItem.state = store.dataSourceMode == .automatic ? .on : .off
+      dataSourceMenu.addItem(autoDetectItem)
+      let sourceItem = NSMenuItem(title: compactMenuTitle(store.dataSourceDescription), action: nil, keyEquivalent: "")
+      sourceItem.isEnabled = false
+      sourceItem.toolTip = store.dataSourceDescription
+      dataSourceMenu.addItem(sourceItem)
+      if store.dataSourceMode == .manual {
+        let pathItem = NSMenuItem(title: compactMenuTitle(store.logPath), action: nil, keyEquivalent: "")
+        pathItem.isEnabled = false
+        pathItem.toolTip = store.logPath
+        dataSourceMenu.addItem(pathItem)
+      }
+      let choosePathItem = NSMenuItem(title: "Choose Path...", action: #selector(chooseDataSourcePath(_:)), keyEquivalent: "")
       choosePathItem.target = self
-      logMenu.addItem(choosePathItem)
-      menu.setSubmenu(logMenu, for: logItem)
-      menu.addItem(logItem)
+      dataSourceMenu.addItem(choosePathItem)
+      let revealItem = NSMenuItem(title: "Reveal Source", action: #selector(revealDataSource(_:)), keyEquivalent: "")
+      revealItem.target = self
+      revealItem.isEnabled = store.fileExists
+      dataSourceMenu.addItem(revealItem)
+      menu.setSubmenu(dataSourceMenu, for: dataSourceItem)
+      menu.addItem(dataSourceItem)
 
       let showUsageItem = NSMenuItem(title: "Show Usage Number", action: #selector(toggleUsageNumber(_:)), keyEquivalent: "")
       showUsageItem.target = self
       showUsageItem.state = UserDefaults.standard.bool(forKey: showMenuBarUsageNumberKey) ? .on : .off
       menu.addItem(showUsageItem)
 
-      menu.addItem(.separator())
       let aboutItem = NSMenuItem(title: "About TokenBar", action: #selector(showAbout(_:)), keyEquivalent: "")
       aboutItem.target = self
       menu.addItem(aboutItem)
@@ -436,14 +458,23 @@ private struct SettingsMenuPresenter: NSViewRepresentable {
       }
     }
 
-    @objc private func chooseLogFile(_ item: NSMenuItem) {
+    @objc private func setDataSourceMode(_ item: NSMenuItem) {
+      guard let rawValue = item.representedObject as? String,
+        let mode = UsageDataSourceMode(rawValue: rawValue)
+      else {
+        return
+      }
+      store?.setDataSourceMode(mode)
+    }
+
+    @objc private func chooseDataSourcePath(_ item: NSMenuItem) {
       guard let store else { return }
       DispatchQueue.main.async {
         let panel = NSOpenPanel()
-        panel.title = "Choose Usage Log"
+        panel.title = "Choose Data Source"
         panel.prompt = "Choose"
         panel.canChooseFiles = true
-        panel.canChooseDirectories = false
+        panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
         panel.directoryURL = store.logFileURL.deletingLastPathComponent()
 
@@ -451,6 +482,10 @@ private struct SettingsMenuPresenter: NSViewRepresentable {
           store.setLogFileURL(url)
         }
       }
+    }
+
+    @objc private func revealDataSource(_ item: NSMenuItem) {
+      store?.revealDataSource()
     }
 
     @objc private func toggleUsageNumber(_ item: NSMenuItem) {
@@ -468,6 +503,11 @@ private struct SettingsMenuPresenter: NSViewRepresentable {
       alert.messageText = "TokenBar"
       alert.informativeText = message
       alert.runModal()
+    }
+
+    private func compactMenuTitle(_ value: String) -> String {
+      guard value.count > 30 else { return value }
+      return String(value.prefix(13)) + "..." + String(value.suffix(14))
     }
   }
 }
@@ -614,25 +654,31 @@ private struct AnimatedMetricTextModifier: AnimatableModifier {
   }
 }
 
-private struct LatestRecordRow: View {
-  let record: UsageRecord
+private struct EmptyUsageRow: View {
+  let title: String
+
+  var body: some View {
+    Text(title)
+      .font(.caption)
+      .foregroundStyle(.secondary)
+      .frame(maxWidth: .infinity, alignment: .leading)
+  }
+}
+
+private struct AgentUsageRow: View {
+  let row: AgentUsage
 
   var body: some View {
     HStack(spacing: 8) {
-      VStack(alignment: .leading, spacing: 2) {
-        Text(record.model ?? "unknown")
-          .font(.caption.weight(.medium))
-          .lineLimit(1)
-          .truncationMode(.middle)
-        Text("\(record.surface ?? "-") · \(record.mode ?? "-") · \(UsageFormat.time(record.date))")
-          .font(.caption2)
-          .foregroundStyle(.secondary)
-          .lineLimit(1)
-      }
+      Text(row.agent)
+        .font(.caption)
+        .lineLimit(1)
+        .truncationMode(.tail)
       Spacer()
-      Text(UsageFormat.tokens(record.usage?.totalTokens ?? 0))
+      Text("\(UsageFormat.tokens(row.totals.totalTokens)) · \(UsageFormat.integer(row.totals.requests))")
         .font(.caption.monospacedDigit())
         .foregroundStyle(.secondary)
+        .lineLimit(1)
     }
   }
 }
