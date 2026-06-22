@@ -3,7 +3,7 @@ import Combine
 import SwiftUI
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
   let store = UsageLogStore()
 
   private lazy var statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -19,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     UserDefaults.standard.register(defaults: [showMenuBarUsageNumberKey: true])
     configureStatusItem()
     configurePopover()
+    applyAppearance()
     observeStore()
     observePreferences()
     observeStatusItemClicks()
@@ -51,11 +52,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let popover = NSPopover()
     popover.behavior = .transient
     popover.animates = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    popover.delegate = self
 
     let hostingController = NSHostingController(rootView: MenuBarDashboardView(store: store))
     hostingController.sizingOptions = [.preferredContentSize]
     popover.contentViewController = hostingController
-    popover.delegate = self
 
     self.popover = popover
   }
@@ -75,6 +76,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
       .receive(on: RunLoop.main)
       .sink { [weak self] _ in
+        self?.applyAppearance()
         self?.updateStatusItemTitle()
       }
       .store(in: &cancellables)
@@ -91,8 +93,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDown) { [weak self] _ in
-      guard let self, let popover = self.popover, popover.isShown else { return }
-      popover.close()
+      guard let self, self.popover?.isShown == true else { return }
+      self.closePopover()
     }
   }
 
@@ -115,8 +117,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     guard abs(Date.timeIntervalSinceReferenceDate - popoverClosedTime) > 0.1 else {
       return false
     }
-    if let popover, popover.isShown {
-      popover.close()
+    if popover?.isShown == true {
+      closePopover()
       return false
     }
     return true
@@ -125,11 +127,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private func openPanel() {
     guard let button = statusItem.button, let popover else { return }
 
+    applyAppearance()
     popover.animates = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
     popover.show(relativeTo: button.bounds, of: button, preferredEdge: .maxY)
+    applyAppearance()
     NSApp.activate(ignoringOtherApps: true)
     popover.contentViewController?.view.window?.makeKeyAndOrderFront(nil)
     button.highlight(true)
+  }
+
+  private func closePopover() {
+    popover?.close()
+    popoverClosedTime = Date.timeIntervalSinceReferenceDate
+    statusItem.button?.highlight(false)
   }
 
   private func updateStatusItemTitle() {
@@ -139,9 +149,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     statusItem.button?.imagePosition = title.isEmpty ? .imageOnly : .imageLeading
   }
 
+  private func applyAppearance() {
+    let appearance = appearanceMode.nsAppearance
+    NSApp.appearance = appearance
+    popover?.contentViewController?.view.window?.appearance = appearance
+  }
+
+  private var appearanceMode: AppAppearanceMode {
+    AppAppearanceMode(rawValue: UserDefaults.standard.string(forKey: "appearanceMode") ?? "") ?? .system
+  }
+
   private func showAboutPanel() {
-    popover?.close()
-    statusItem.button?.highlight(false)
+    closePopover()
 
     DispatchQueue.main.async {
       NSApp.activate(ignoringOtherApps: true)
@@ -153,9 +172,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       NSApp.orderFrontStandardAboutPanel(options: options)
     }
   }
-}
 
-extension AppDelegate: NSPopoverDelegate {
   func popoverWillClose(_ notification: Notification) {
     popoverClosedTime = Date.timeIntervalSinceReferenceDate
     statusItem.button?.highlight(false)

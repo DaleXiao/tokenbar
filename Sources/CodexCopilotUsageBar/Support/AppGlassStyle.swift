@@ -4,6 +4,8 @@ struct AppGlassStyle {
   let panelTint: Color
   let tileTint: Color
   let border: Color
+  let tileBorder: Color
+  let tileBorderWidth: CGFloat
   let shadow: Color
   let modelIconColor: Color
 
@@ -14,6 +16,8 @@ struct AppGlassStyle {
         panelTint: Color(red: 1.0, green: 1.0, blue: 0.985).opacity(0.32),
         tileTint: .white.opacity(0.13),
         border: .white.opacity(0.38),
+        tileBorder: .black.opacity(0.12),
+        tileBorderWidth: 1.1,
         shadow: .black.opacity(0.08),
         modelIconColor: .black
       )
@@ -22,6 +26,8 @@ struct AppGlassStyle {
         panelTint: Color(red: 0.02, green: 0.023, blue: 0.03).opacity(0.36),
         tileTint: .white.opacity(0.055),
         border: .white.opacity(0.13),
+        tileBorder: .white.opacity(0.13),
+        tileBorderWidth: 1,
         shadow: .black.opacity(0.22),
         modelIconColor: .white
       )
@@ -31,6 +37,8 @@ struct AppGlassStyle {
           panelTint: .black.opacity(0.20),
           tileTint: .white.opacity(0.05),
           border: .white.opacity(0.14),
+          tileBorder: .white.opacity(0.14),
+          tileBorderWidth: 1,
           shadow: .black.opacity(0.20),
           modelIconColor: .white
         )
@@ -38,6 +46,8 @@ struct AppGlassStyle {
           panelTint: .white.opacity(0.26),
           tileTint: .white.opacity(0.11),
           border: .white.opacity(0.34),
+          tileBorder: .black.opacity(0.11),
+          tileBorderWidth: 1.1,
           shadow: .black.opacity(0.07),
           modelIconColor: .black
         )

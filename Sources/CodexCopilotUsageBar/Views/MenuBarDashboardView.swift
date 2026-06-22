@@ -5,7 +5,6 @@ struct MenuBarDashboardView: View {
   @ObservedObject var store: UsageLogStore
   @AppStorage("appearanceMode") private var appearanceModeRaw = AppAppearanceMode.system.rawValue
   @AppStorage("skipQuitConfirmation") private var skipQuitConfirmation = false
-  @Environment(\.colorScheme) private var colorScheme
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @State private var isSettingsPresented = false
   @State private var isQuitConfirmationPresented = false
@@ -24,20 +23,13 @@ struct MenuBarDashboardView: View {
   var body: some View {
     dashboardPanel
       .padding(14)
-      .frame(width: 392)
-      .background {
-        RoundedRectangle(cornerRadius: 14, style: .continuous)
-          .fill(.ultraThinMaterial)
-        RoundedRectangle(cornerRadius: 14, style: .continuous)
-          .fill(glassStyle.panelTint)
-      }
+      .frame(width: 320)
       .overlay {
         if isQuitConfirmationPresented {
           quitConfirmationOverlay
             .transition(.scale(scale: 0.96).combined(with: .opacity))
         }
       }
-    .frame(width: 392)
     .environment(\.colorScheme, effectiveColorScheme)
     .preferredColorScheme(appearanceMode.colorScheme)
     .onAppear {
@@ -195,7 +187,7 @@ struct MenuBarDashboardView: View {
   }
 
   private var effectiveColorScheme: ColorScheme {
-    appearanceMode.colorScheme ?? colorScheme
+    appearanceMode.colorScheme ?? AppAppearanceMode.systemColorScheme
   }
 
   private var glassStyle: AppGlassStyle {
@@ -427,10 +419,6 @@ private struct SettingsMenuPresenter: NSViewRepresentable {
       let choosePathItem = NSMenuItem(title: "Choose Path...", action: #selector(chooseDataSourcePath(_:)), keyEquivalent: "")
       choosePathItem.target = self
       dataSourceMenu.addItem(choosePathItem)
-      let revealItem = NSMenuItem(title: "Reveal Source", action: #selector(revealDataSource(_:)), keyEquivalent: "")
-      revealItem.target = self
-      revealItem.isEnabled = store.fileExists
-      dataSourceMenu.addItem(revealItem)
       menu.setSubmenu(dataSourceMenu, for: dataSourceItem)
       menu.addItem(dataSourceItem)
 
@@ -447,6 +435,9 @@ private struct SettingsMenuPresenter: NSViewRepresentable {
 
     @objc private func setAppearanceMode(_ item: NSMenuItem) {
       guard let rawValue = item.representedObject as? String else { return }
+      let mode = AppAppearanceMode(rawValue: rawValue) ?? .system
+      NSApp.appearance = mode.nsAppearance
+      NSApp.keyWindow?.appearance = mode.nsAppearance
       UserDefaults.standard.set(rawValue, forKey: appearanceModeKey)
     }
 
@@ -482,10 +473,6 @@ private struct SettingsMenuPresenter: NSViewRepresentable {
           store.setLogFileURL(url)
         }
       }
-    }
-
-    @objc private func revealDataSource(_ item: NSMenuItem) {
-      store?.revealDataSource()
     }
 
     @objc private func toggleUsageNumber(_ item: NSMenuItem) {
@@ -584,12 +571,11 @@ private struct StatTile: View {
         .monospacedDigit()
         .lineLimit(1)
         .minimumScaleFactor(0.75)
-      if let footnote {
-        Text(footnote)
-          .font(.caption2)
-          .foregroundStyle(.secondary)
-          .lineLimit(1)
-      }
+      Text(footnote ?? " ")
+        .font(.caption2)
+        .foregroundStyle(.secondary)
+        .lineLimit(1)
+        .opacity(footnote == nil ? 0 : 1)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
     .padding(10)
@@ -599,7 +585,7 @@ private struct StatTile: View {
     }
     .overlay {
       RoundedRectangle(cornerRadius: 8, style: .continuous)
-        .strokeBorder(glassStyle.border)
+        .strokeBorder(glassStyle.tileBorder, lineWidth: glassStyle.tileBorderWidth)
     }
     .onAppear {
       runEntryAnimation()

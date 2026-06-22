@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 enum AppAppearanceMode: String, CaseIterable, Identifiable {
@@ -21,6 +22,19 @@ enum AppAppearanceMode: String, CaseIterable, Identifiable {
     case .day: .light
     case .night: .dark
     }
+  }
+
+  var nsAppearance: NSAppearance? {
+    switch self {
+    case .system: nil
+    case .day: NSAppearance(named: .aqua)
+    case .night: NSAppearance(named: .darkAqua)
+    }
+  }
+
+  static var systemColorScheme: ColorScheme {
+    let match = NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])
+    return match == .darkAqua ? .dark : .light
   }
 
   var toggleSymbolName: String {

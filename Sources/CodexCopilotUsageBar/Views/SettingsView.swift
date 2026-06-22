@@ -65,19 +65,10 @@ struct SettingsView: View {
             .truncationMode(.middle)
             .textSelection(.enabled)
 
-          HStack(spacing: 8) {
-            Button {
-              chooseDataSourcePath()
-            } label: {
-              Label("Choose Path...", systemImage: "folder.badge.plus")
-            }
-
-            Button {
-              store.revealDataSource()
-            } label: {
-              Label("Reveal Source", systemImage: "folder")
-            }
-            .disabled(!store.fileExists)
+          Button {
+            chooseDataSourcePath()
+          } label: {
+            Label("Choose Path...", systemImage: "folder.badge.plus")
           }
           .buttonStyle(.bordered)
         }

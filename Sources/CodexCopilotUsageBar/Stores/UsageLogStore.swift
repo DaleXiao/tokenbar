@@ -53,11 +53,6 @@ final class UsageLogStore: ObservableObject {
     startRefresh(force: true, restartWatching: true)
   }
 
-  func revealDataSource() {
-    let urls = activeDataSourceURLs.isEmpty ? [logFileURL] : activeDataSourceURLs
-    NSWorkspace.shared.activateFileViewerSelecting(urls)
-  }
-
   func setDataSourceMode(_ mode: UsageDataSourceMode) {
     guard mode != dataSourceMode else { return }
     stopWatchingLog()
@@ -266,7 +261,8 @@ private struct UsageDataLoader {
   private let manualDirectoryMaxFiles = 120
   private let manualMaxBytesPerFile = 8 * 1024 * 1024
   private let codexModelHintMaxBytes = 1024 * 1024
-  private let codexSessionSnapshotMaxBytes = 1024 * 1024
+  private let codexSessionSummaryMaxBytes = 1024 * 1024
+  private let codexSessionRecentMaxBytes = 16 * 1024 * 1024
 
   init(dataSourceMode: UsageDataSourceMode, logFileURL: URL) {
     self.dataSourceMode = dataSourceMode
@@ -344,7 +340,8 @@ private struct UsageDataLoader {
       if source.kind == .codexSessions {
         let parsed = parseCodexSessionSnapshot(
           from: fileURL,
-          initialModelHint: codexModelNameHint
+          initialModelHint: codexModelNameHint,
+          readLimit: readLimit
         )
         records.append(contentsOf: parsed.records)
         invalidLines += parsed.invalidLines
@@ -386,9 +383,10 @@ private struct UsageDataLoader {
 
   private func parseCodexSessionSnapshot(
     from fileURL: URL,
-    initialModelHint: String?
+    initialModelHint: String?,
+    readLimit: Int
   ) -> (records: [UsageRecord], invalidLines: Int) {
-    guard let data = readBoundedData(from: fileURL, limit: codexSessionSnapshotMaxBytes) else {
+    guard let data = readBoundedData(from: fileURL, limit: readLimit) else {
       return ([], 1)
     }
 
@@ -397,6 +395,7 @@ private struct UsageDataLoader {
     var latestTimestamp: String?
     var latestModel: String?
     var latestTotalValues: [String: Double]?
+    var incrementalRecords: [UsageRecord] = []
 
     for line in String(decoding: data, as: UTF8.self).split(whereSeparator: \.isNewline) {
       guard let lineData = String(line).data(using: .utf8),
@@ -419,28 +418,51 @@ private struct UsageDataLoader {
         continue
       }
 
+      let eventTimestamp = timestamp(from: object)
+      let eventModel = info["model"] as? String ?? modelHint
+
+      if let eventTimestamp,
+        isTodayTimestamp(eventTimestamp),
+        let lastUsageObject = info["last_token_usage"] as? [String: Any]
+      {
+        let lastValues = numericValues(in: lastUsageObject)
+        if !lastValues.isEmpty, lastValues.values.contains(where: { $0 != 0 }) {
+          incrementalRecords.append(
+            UsageRecord(
+              timestamp: eventTimestamp,
+              surface: "codex",
+              mode: "session-delta",
+              model: eventModel,
+              responseID: object["id"] as? String,
+              usage: TokenUsage(values: lastValues),
+              copilotUsage: nil
+            )
+          )
+        }
+      }
+
       let totalValues = numericValues(in: totalUsageObject)
       guard !totalValues.isEmpty, totalValues.values.contains(where: { $0 != 0 }) else { continue }
-      latestTimestamp = timestamp(from: object)
-      latestModel = info["model"] as? String
+      latestTimestamp = eventTimestamp
+      latestModel = eventModel
       latestTotalValues = totalValues
     }
 
     guard let latestTotalValues else {
-      return ([], invalidLines)
+      return (incrementalRecords, invalidLines)
     }
 
     return ([
       UsageRecord(
-        timestamp: codexSessionRecordTimestamp(for: fileURL, latestTimestamp: latestTimestamp),
+        timestamp: codexSessionTotalTimestamp(for: fileURL, latestTimestamp: latestTimestamp),
         surface: "codex",
-        mode: "session",
+        mode: "session-total",
         model: latestModel ?? modelHint,
         responseID: fileURL.lastPathComponent,
         usage: TokenUsage(values: latestTotalValues),
         copilotUsage: nil
       )
-    ], invalidLines)
+    ] + incrementalRecords, invalidLines)
   }
 
   private func parseLine(_ data: Data, sourceKind: UsageSourceKind, codexModelHint: String?) -> ParsedUsageLine {
@@ -669,35 +691,34 @@ private struct UsageDataLoader {
     case .codexCopilotDX:
       return codexCopilotDXMaxBytes
     case .codexSessions:
-      return codexSessionSnapshotMaxBytes
+      return codexSessionReadLimit(for: fileURL)
     case .claudeProjects, .autoDetect:
       return automaticDirectoryMaxBytesPerFile
     }
   }
 
-  private func isCodexSessionPathToday(_ url: URL) -> Bool {
-    let components = url.pathComponents
-    guard let dayIndex = components.indices.dropLast().last,
-      dayIndex >= 2,
-      let year = Int(components[dayIndex - 2]),
-      let month = Int(components[dayIndex - 1]),
-      let day = Int(components[dayIndex])
-    else {
-      return false
+  private func codexSessionReadLimit(for fileURL: URL) -> Int {
+    guard let pathDate = codexSessionPathDate(from: fileURL) else {
+      return codexSessionSummaryMaxBytes
     }
 
-    let today = Calendar.current.dateComponents([.year, .month, .day], from: Date())
-    return today.year == year && today.month == month && today.day == day
+    let calendar = Calendar.current
+    let pathDay = calendar.startOfDay(for: pathDate)
+    let today = calendar.startOfDay(for: Date())
+    let dayDistance = calendar.dateComponents([.day], from: pathDay, to: today).day ?? Int.max
+    return (0...1).contains(dayDistance) ? codexSessionRecentMaxBytes : codexSessionSummaryMaxBytes
   }
 
-  private func codexSessionRecordTimestamp(for url: URL, latestTimestamp: String?) -> String {
-    if isCodexSessionPathToday(url), let latestTimestamp {
-      return latestTimestamp
-    }
+  private func codexSessionTotalTimestamp(for url: URL, latestTimestamp: String?) -> String {
     if let pathDate = codexSessionPathDate(from: url) {
       return ISO8601DateFormatter().string(from: pathDate)
     }
     return latestTimestamp ?? currentTimestamp()
+  }
+
+  private func isTodayTimestamp(_ timestamp: String) -> Bool {
+    guard let date = UsageDateParser.date(from: timestamp) else { return false }
+    return Calendar.current.isDateInToday(date)
   }
 
   private func codexSessionPathDate(from url: URL) -> Date? {

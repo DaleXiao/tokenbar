@@ -113,6 +113,14 @@ struct UsageRecord: Decodable {
     }
     return "Unknown Agent"
   }
+
+  var isCodexSessionTotal: Bool {
+    surface?.lowercased() == "codex" && mode?.lowercased() == "session-total"
+  }
+
+  var isCodexSessionDelta: Bool {
+    surface?.lowercased() == "codex" && mode?.lowercased() == "session-delta"
+  }
 }
 
 struct TokenUsage: Decodable {
@@ -228,11 +236,13 @@ struct UsageSummary {
     var agents: [String: UsageTotals] = [:]
 
     for record in records {
-      all.add(record)
-      if let date = record.date, calendar.isDateInToday(date) {
+      if !record.isCodexSessionDelta {
+        all.add(record)
+      }
+      if !record.isCodexSessionTotal, let date = record.date, calendar.isDateInToday(date) {
         today.add(record)
       }
-      guard record.usage != nil else { continue }
+      guard record.usage != nil, !record.isCodexSessionDelta else { continue }
       if let model = record.modelDisplayName {
         models[model, default: UsageTotals()].add(record)
       }
