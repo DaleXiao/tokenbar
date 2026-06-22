@@ -3,6 +3,9 @@
 TokenBar is a macOS menu bar app for tracking coding-agent token usage.
 
 It reads local usage logs from tools such as Codex and Claude Code, summarizes token activity in a compact glass-style popover, and can show the current usage number directly next to the menu bar icon.
+<img width="346" height="450" alt="image" src="https://github.com/user-attachments/assets/01fcd1f0-a584-41c7-9dc7-e8652e3f003f" />
+
+
 
 ## Features
 
