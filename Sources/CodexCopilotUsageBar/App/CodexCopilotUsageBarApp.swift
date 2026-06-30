@@ -12,7 +12,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
   private var popoverClosedTime: TimeInterval = 0
   private var localMouseMonitor: Any?
   private var globalMouseMonitor: Any?
+  private var statusIconTrackingArea: NSTrackingArea?
+  private var statusIconAnimationTimer: Timer?
   private let showMenuBarUsageNumberKey = "showMenuBarUsageNumber"
+  private let statusIconAnimationDuration: TimeInterval = 0.64
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     NSApp.setActivationPolicy(.accessory)
@@ -33,18 +36,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     if let globalMouseMonitor {
       NSEvent.removeMonitor(globalMouseMonitor)
     }
+    if let statusIconAnimationTimer {
+      statusIconAnimationTimer.invalidate()
+    }
+    if let statusIconTrackingArea, let button = statusItem.button {
+      button.removeTrackingArea(statusIconTrackingArea)
+    }
   }
 
   private func configureStatusItem() {
     statusItem.autosaveName = "TokenBar"
     statusItem.isVisible = true
 
-    let image = NSImage(systemSymbolName: "chart.bar.xaxis", accessibilityDescription: "TokenBar")
-    image?.isTemplate = true
-
-    statusItem.button?.image = image
+    statusItem.button?.image = MenuBarStatusIcon.image()
     statusItem.button?.imagePosition = .imageLeading
     statusItem.button?.setAccessibilityLabel("TokenBar")
+    installStatusIconHoverTracking()
     updateStatusItemTitle()
   }
 
@@ -96,6 +103,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
       guard let self, self.popover?.isShown == true else { return }
       self.closePopover()
     }
+  }
+
+  private func installStatusIconHoverTracking() {
+    guard let button = statusItem.button else { return }
+    if let statusIconTrackingArea {
+      button.removeTrackingArea(statusIconTrackingArea)
+    }
+
+    let trackingArea = NSTrackingArea(
+      rect: .zero,
+      options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+      owner: self,
+      userInfo: nil
+    )
+    button.addTrackingArea(trackingArea)
+    statusIconTrackingArea = trackingArea
+  }
+
+  @objc(mouseEntered:)
+  private func statusIconMouseEntered(_ event: NSEvent) {
+    runStatusIconHoverAnimation()
+  }
+
+  private func runStatusIconHoverAnimation() {
+    guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
+
+    statusIconAnimationTimer?.invalidate()
+    let startTime = Date.timeIntervalSinceReferenceDate
+    statusItem.button?.image = MenuBarStatusIcon.image(waveProgress: 0)
+
+    let timer = Timer(timeInterval: 1.0 / 45.0, repeats: true) { [weak self] timer in
+      Task { @MainActor [weak self] in
+        guard let self else {
+          timer.invalidate()
+          return
+        }
+
+        let elapsed = Date.timeIntervalSinceReferenceDate - startTime
+        let progress = min(elapsed / self.statusIconAnimationDuration, 1)
+        self.statusItem.button?.image = MenuBarStatusIcon.image(waveProgress: progress)
+
+        if progress >= 1 {
+          timer.invalidate()
+          self.statusIconAnimationTimer = nil
+          self.statusItem.button?.image = MenuBarStatusIcon.image()
+        }
+      }
+    }
+    statusIconAnimationTimer = timer
+    RunLoop.main.add(timer, forMode: .common)
   }
 
   private func observeAppRequests() {
@@ -176,6 +233,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
   func popoverWillClose(_ notification: Notification) {
     popoverClosedTime = Date.timeIntervalSinceReferenceDate
     statusItem.button?.highlight(false)
+  }
+}
+
+private enum MenuBarStatusIcon {
+  private static let size = NSSize(width: 18, height: 18)
+  private static let baseHeights: [CGFloat] = [5.5, 8.5, 12.5, 7, 10.5]
+
+  static func image(waveProgress: TimeInterval? = nil) -> NSImage {
+    let image = NSImage(size: size)
+    image.lockFocus()
+    defer {
+      image.unlockFocus()
+      image.isTemplate = true
+      image.accessibilityDescription = "TokenBar"
+    }
+
+    NSColor.black.setFill()
+
+    let barWidth: CGFloat = 2.15
+    let spacing: CGFloat = 0.85
+    let totalBarWidth = CGFloat(baseHeights.count) * barWidth + CGFloat(baseHeights.count - 1) * spacing
+    let startX = (size.width - totalBarWidth) / 2
+
+    let baseline = NSRect(x: startX, y: 2.2, width: totalBarWidth, height: 1.8)
+    NSBezierPath(roundedRect: baseline, xRadius: 0.9, yRadius: 0.9).fill()
+
+    for index in baseHeights.indices {
+      let height = baseHeights[index] + waveLift(for: index, progress: waveProgress)
+      let rect = NSRect(
+        x: startX + CGFloat(index) * (barWidth + spacing),
+        y: 3.5,
+        width: barWidth,
+        height: height
+      )
+      NSBezierPath(roundedRect: rect, xRadius: 1.05, yRadius: 1.05).fill()
+    }
+
+    return image
+  }
+
+  private static func waveLift(for index: Int, progress: TimeInterval?) -> CGFloat {
+    guard let progress else { return 0 }
+    let phase = progress * TimeInterval(baseHeights.count) - TimeInterval(index)
+    guard (0...1).contains(phase) else { return 0 }
+    return CGFloat(sin(phase * .pi)) * 3.8
   }
 }
 
