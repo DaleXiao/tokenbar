@@ -256,14 +256,11 @@ private enum MenuBarStatusIcon {
     let totalBarWidth = CGFloat(baseHeights.count) * barWidth + CGFloat(baseHeights.count - 1) * spacing
     let startX = (size.width - totalBarWidth) / 2
 
-    let baseline = NSRect(x: startX, y: 2.2, width: totalBarWidth, height: 1.8)
-    NSBezierPath(roundedRect: baseline, xRadius: 0.9, yRadius: 0.9).fill()
-
     for index in baseHeights.indices {
       let height = baseHeights[index] + waveLift(for: index, progress: waveProgress)
       let rect = NSRect(
         x: startX + CGFloat(index) * (barWidth + spacing),
-        y: 3.5,
+        y: 2.6,
         width: barWidth,
         height: height
       )
